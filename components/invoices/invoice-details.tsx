@@ -5,17 +5,28 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { formatCurrency, formatDate } from "@/lib/utils"
-import { Edit, Download, Send, Plus, Mail, FileText, Printer } from "lucide-react"
+import { Edit, Download, Send, Plus, Mail, FileText, Printer, Eye } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import Link from "next/link"
+import { usePDFGenerator, usePDFUpload } from "@/components/pdf/pdf-hooks"
+import { createClient } from '@supabase/supabase-js'
+
+// Initialize Supabase client
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 interface InvoiceDetailsProps {
   invoice: any
 }
 
 export function InvoiceDetails({ invoice }: InvoiceDetailsProps) {
-  const [isExporting, setIsExporting] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  
+  // PDF generation hooks
+  const { generatePDF, isGenerating, error } = usePDFGenerator()
+  const { uploadPDF, isUploading, uploadError } = usePDFUpload()
 
   const getStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
@@ -49,225 +60,47 @@ export function InvoiceDetails({ invoice }: InvoiceDetailsProps) {
     }
   }
 
-  // Generate PDF content and download
+  // Handle PDF generation and download
   const handleDownloadPDF = async () => {
-    setIsExporting(true)
     try {
-      // Create printable HTML content
-      const printContent = `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>Invoice ${invoice.invoice_number}</title>
-            <meta charset="utf-8">
-            <style>
-              * { box-sizing: border-box; }
-              body { 
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-                margin: 0; 
-                padding: 40px; 
-                color: #333; 
-                line-height: 1.6;
-              }
-              .invoice-header { 
-                text-align: center; 
-                margin-bottom: 40px; 
-                border-bottom: 3px solid #3b82f6;
-                padding-bottom: 20px;
-              }
-              .invoice-header h1 { 
-                margin: 0; 
-                font-size: 36px; 
-                color: #1f2937;
-                font-weight: 700;
-              }
-              .invoice-number { 
-                font-size: 24px; 
-                color: #3b82f6; 
-                margin: 10px 0;
-                font-weight: 600;
-              }
-              .invoice-title {
-                font-size: 18px;
-                color: #6b7280;
-                margin: 5px 0;
-              }
-              .details-grid { 
-                display: grid; 
-                grid-template-columns: 1fr 1fr; 
-                gap: 40px; 
-                margin-bottom: 30px; 
-              }
-              .detail-section h3 { 
-                font-size: 16px; 
-                font-weight: 600; 
-                color: #1f2937; 
-                margin-bottom: 10px;
-                border-bottom: 1px solid #e5e7eb;
-                padding-bottom: 5px;
-              }
-              .detail-section p { 
-                margin: 5px 0; 
-                font-size: 14px;
-              }
-              .financial-summary { 
-                background: #f9fafb; 
-                padding: 20px; 
-                border-radius: 8px; 
-                margin-top: 30px;
-                border-left: 4px solid #3b82f6;
-              }
-              .financial-row { 
-                display: flex; 
-                justify-content: space-between; 
-                margin: 8px 0; 
-                font-size: 14px;
-              }
-              .financial-row.total { 
-                font-weight: bold; 
-                font-size: 18px; 
-                border-top: 2px solid #d1d5db; 
-                padding-top: 10px; 
-                margin-top: 15px;
-              }
-              .financial-row.paid { color: #059669; font-weight: 600; }
-              .financial-row.remaining { color: #dc2626; font-weight: 600; }
-              .status-badges {
-                text-align: center;
-                margin: 20px 0;
-              }
-              .badge {
-                display: inline-block;
-                padding: 6px 12px;
-                border-radius: 6px;
-                font-size: 12px;
-                font-weight: 600;
-                margin: 0 5px;
-                text-transform: uppercase;
-              }
-              .badge.paid { background: #dcfce7; color: #166534; }
-              .badge.unpaid { background: #fee2e2; color: #991b1b; }
-              .badge.partial { background: #fef3c7; color: #92400e; }
-              .badge.draft { background: #f3f4f6; color: #374151; }
-              .badge.sent { background: #dbeafe; color: #1e40af; }
-              .description-section {
-                margin: 20px 0;
-                padding: 15px;
-                background: #f8fafc;
-                border-radius: 6px;
-              }
-              @media print {
-                body { margin: 20px; }
-                .no-print { display: none; }
-              }
-            </style>
-          </head>
-          <body>
-            <div class="invoice-header">
-              <h1>INVOICE</h1>
-              <div class="invoice-number">${invoice.invoice_number}</div>
-              <div class="invoice-title">${invoice.title || ''}</div>
-            </div>
-
-            <div class="details-grid">
-              <div class="detail-section">
-                <h3>Bill To</h3>
-                <p><strong>${invoice.client_name || 'N/A'}</strong></p>
-                ${invoice.client_company ? `<p>${invoice.client_company}</p>` : ''}
-                <p>${invoice.client_email || ''}</p>
-              </div>
-              <div class="detail-section">
-                <h3>Invoice Details</h3>
-                <p><strong>Issue Date:</strong> ${formatDate(invoice.issue_date || new Date())}</p>
-                <p><strong>Due Date:</strong> ${formatDate(invoice.due_date)}</p>
-                ${invoice.paid_date ? `<p><strong>Paid Date:</strong> ${formatDate(invoice.paid_date)}</p>` : ''}
-                <p><strong>Currency:</strong> ${invoice.currency || 'IDR'}</p>
-              </div>
-            </div>
-
-            ${invoice.description ? `
-              <div class="description-section">
-                <h3>Description</h3>
-                <p>${invoice.description}</p>
-              </div>
-            ` : ''}
-
-            <div class="status-badges">
-              <span class="badge ${invoice.status?.toLowerCase() || 'draft'}">${invoice.status || 'Draft'}</span>
-              <span class="badge ${(invoice.payment_status || 'unpaid').toLowerCase().replace(' ', '')}">${invoice.payment_status || 'Unpaid'}</span>
-            </div>
-
-            <div class="financial-summary">
-              <h3>Financial Summary</h3>
-              <div class="financial-row">
-                <span>Subtotal:</span>
-                <span>${formatCurrency(invoice.amount || 0)}</span>
-              </div>
-              ${invoice.tax_amount ? `
-                <div class="financial-row">
-                  <span>Tax (${invoice.tax_rate || 0}%):</span>
-                  <span>${formatCurrency(invoice.tax_amount)}</span>
-                </div>
-              ` : ''}
-              <div class="financial-row total">
-                <span>Total Amount:</span>
-                <span>${formatCurrency(invoice.total_amount || 0)}</span>
-              </div>
-              ${invoice.paid_amount > 0 ? `
-                <div class="financial-row paid">
-                  <span>Amount Paid:</span>
-                  <span>${formatCurrency(invoice.paid_amount)}</span>
-                </div>
-              ` : ''}
-              ${invoice.remaining_amount > 0 ? `
-                <div class="financial-row remaining">
-                  <span>Amount Due:</span>
-                  <span>${formatCurrency(invoice.remaining_amount)}</span>
-                </div>
-              ` : ''}
-            </div>
-
-            ${invoice.notes ? `
-              <div class="description-section">
-                <h3>Notes</h3>
-                <p>${invoice.notes}</p>
-              </div>
-            ` : ''}
-
-            ${invoice.terms ? `
-              <div class="description-section">
-                <h3>Payment Terms</h3>
-                <p>${invoice.terms}</p>
-              </div>
-            ` : ''}
-
-            <div style="text-align: center; margin-top: 40px; font-size: 12px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 20px;">
-              <p>Generated on ${formatDate(new Date())} | Sepur Engineering Roblox</p>
-            </div>
-          </body>
-        </html>
-      `
-
-      // Open in new window for printing/saving
-      const printWindow = window.open('', '_blank')
-      if (printWindow) {
-        printWindow.document.write(printContent)
-        printWindow.document.close()
-        
-        // Wait for content to load then show print dialog
-        printWindow.addEventListener('load', () => {
-          setTimeout(() => {
-            printWindow.print()
-          }, 250)
-        })
-      } else {
-        throw new Error('Pop-up blocked. Please allow pop-ups for this site.')
-      }
+      await generatePDF(invoice, 'download')
     } catch (error) {
-      console.error('PDF generation error:', error)
-      alert('Failed to generate PDF. Please try again or check if pop-ups are allowed.')
-    } finally {
-      setIsExporting(false)
+      console.error('PDF download failed:', error)
+      alert('Failed to generate PDF. Please try again.')
+    }
+  }
+
+  // Handle PDF preview
+  const handlePreviewPDF = async () => {
+    try {
+      await generatePDF(invoice, 'preview')
+    } catch (error) {
+      console.error('PDF preview failed:', error)
+      alert('Failed to preview PDF. Please try again.')
+    }
+  }
+
+  // Handle PDF upload to Supabase
+  const handleUploadPDF = async () => {
+    try {
+      const result = await uploadPDF(invoice, supabase)
+      alert(`PDF uploaded successfully! URL: ${result.url}`)
+      return result
+    } catch (error) {
+      console.error('PDF upload failed:', error)
+      alert('Failed to upload PDF to storage.')
+      throw error
+    }
+  }
+
+  // Handle print
+  const handlePrintPDF = async () => {
+    try {
+      // Generate PDF and open in new tab for printing
+      await generatePDF(invoice, 'preview')
+    } catch (error) {
+      console.error('PDF print failed:', error)
+      alert('Failed to prepare PDF for printing.')
     }
   }
 
@@ -373,9 +206,9 @@ export function InvoiceDetails({ invoice }: InvoiceDetailsProps) {
           
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" disabled={isExporting}>
+              <Button variant="outline" disabled={isGenerating || isUploading}>
                 <Download className="h-4 w-4 mr-2" />
-                {isExporting ? 'Generating...' : 'Export'}
+                {isGenerating ? 'Generating...' : isUploading ? 'Uploading...' : 'Export'}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -383,11 +216,19 @@ export function InvoiceDetails({ invoice }: InvoiceDetailsProps) {
                 <FileText className="h-4 w-4 mr-2" />
                 Download PDF
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={handlePreviewPDF}>
+                <Eye className="h-4 w-4 mr-2" />
+                Preview PDF
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleUploadPDF}>
+                <Download className="h-4 w-4 mr-2" />
+                Save to Storage
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={handleExportCSV}>
                 <Download className="h-4 w-4 mr-2" />
                 Export CSV
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleDownloadPDF}>
+              <DropdownMenuItem onClick={handlePrintPDF}>
                 <Printer className="h-4 w-4 mr-2" />
                 Print Invoice
               </DropdownMenuItem>
@@ -524,10 +365,20 @@ export function InvoiceDetails({ invoice }: InvoiceDetailsProps) {
                 variant="outline" 
                 className="w-full justify-start"
                 onClick={handleDownloadPDF}
-                disabled={isExporting}
+                disabled={isGenerating}
               >
                 <Download className="h-4 w-4 mr-2" />
-                {isExporting ? 'Generating PDF...' : 'Download PDF'}
+                {isGenerating ? 'Generating PDF...' : 'Download PDF'}
+              </Button>
+              
+              <Button 
+                variant="outline" 
+                className="w-full justify-start"
+                onClick={handlePreviewPDF}
+                disabled={isGenerating}
+              >
+                <Eye className="h-4 w-4 mr-2" />
+                Preview PDF
               </Button>
               
               <Button 
